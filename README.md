@@ -1,37 +1,98 @@
-# Causal reflection custom medical billing bench
+# Causal reflection on Medicare bundling edits
 
-Fifty claims from the CMS practitioner PTP quarterly change file effective October 1, 2026. Each session is one real edit. Claim 1 can look the row up. Claims 2 through 5 get `{"available": false}` from the same tool. The causal arm keeps a successful answer on the medical workload. The baseline sees the same prompts and the same tool results, and no session.
+This is a small, repeatable evaluation of [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on a medical billing decision. It uses public Medicare rules, not a customer's claims.
 
-The pre-registered score is exact match on claims 2 through 5, causal minus its own baseline. Claim 1 is reported and is not the win.
+The question is whether a model that keeps a correct earlier result does better on the next claims than the same model with no memory, and how that compares with Claude on cost and accuracy.
 
-## The file
+## Goal
 
-`data/ncci/practitioner-q4.zip` is the practitioner quarterly additions, deletions, and revisions file posted September 1, 2026:
+Medicare will not pay two procedure codes together when a National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edit says the second code is already included in the first. That denial is usually reported as CO-97, "the benefit for this service is included in the payment for another service." The correct fix depends on the current edit:
+
+- The edit was deleted, so both codes can be paid.
+- The edit is a hard bundle, so the second code is denied and a modifier does not change that.
+- The edit allows a modifier, and the documentation supports one specific modifier.
+
+These rules change every quarter. A model that remembers an older edit will apply the wrong payment.
+
+In this bench, each case is five claims that share one real edit from the quarter effective October 1, 2026. The first claim can look the edit up. The next four claims are the same decision, and the lookup no longer returns the rule. Causal reflection keeps a correct first answer and can use it later. The baseline is the same model, seeing the same text and the same tool results, with no memory between claims. Claude sees the same claims and has no memory between them either.
+
+The result that matters is accuracy on claims 2 through 5. Claim 1 shows whether the model can read the rule. Claims 2 through 5 show whether it still has that rule when the row is gone.
+
+## Dataset
+
+The source is the public CMS practitioner PTP quarterly change file, effective October 1, 2026, posted September 1, 2026:
 
 https://www.cms.gov/files/zip/medicare-ncci-2026q4-practitioner-quarterly-additions-deletions-revisions-ptp.zip
 
-`data/ncci/PIN.json` records the URL and the SHA-256. The text tables inside the ZIP are the source. This file has 4,249 additions (1,539 indicator 0 and 2,710 indicator 1), 14 deletions, and 7 modifier-indicator changes. A public write-up of a CO-97 bench reported 1,119 additions for this quarter. Deletions and indicator changes match that write-up. The addition count does not, and this bench pins the CMS file.
+The copy in this repo is `data/ncci/practitioner-q4.zip`. `data/ncci/PIN.json` records the download URL and the SHA-256. The bench reads the text tables in that ZIP:
 
-The ZIP includes the AMA copyright notice that CMS ships with the file. The parsed table stores code pairs and modifier indicators, not code descriptions.
+- 4,249 added edits (1,539 where a modifier is not allowed, 2,710 where a modifier may be allowed)
+- 14 deleted edits
+- 7 edits whose modifier indicator changed
 
-## The fifty claims
+The file lists code pairs and a modifier indicator. It does not include code descriptions, fees, or medical notes. The ZIP contains the AMA copyright notice that CMS ships with the file. This repo stores the pairs and indicators, not descriptions.
 
-Ten sessions, five claims each. Date of service is 2026-10-15. The disposition does not change inside a session.
+Every claim uses the date of service October 15, 2026, so the October 1 rules are the ones in force. The correct decision does not change from one claim to the next inside a case.
 
-| Order | Sessions | What the file says | Gold |
-| --- | --- | --- | --- |
-| 1, 2, 7, 8 | 4 deletions | The edit is deleted on 2026-10-01 | `column_2: pay` / `modifier: none` |
-| 3, 9 | 2 indicator changes to 1 | A modifier is allowed, and every claim says the service was on a separate anatomic site | `column_2: pay` / `modifier: XS` |
-| 4 | 1 indicator change to 0 | The new indicator is 0 | `column_2: deny` / `modifier: none` |
-| 5, 6, 10 | 3 new indicator-0 edits | A modifier does not pay the second code | `column_2: deny` / `modifier: none` |
+## The bench
 
-The first six sessions are the 30-claim gate: two of each edit type, including one `XS` change and one indicator-0 change.
+There are 50 claims: 10 cases, 5 claims each. The cases are real pairs from the change file.
 
-`XS` is the only modifier the grader accepts, and only when the new indicator is 1 and the claim contains: "The column-two service was performed on a separate anatomic site." Modifiers 59, XE, XP, and XU are wrong. That rule is in the system prompt for every arm. The CMS row is not.
+| Cases | Edit in the CMS file | Correct decision |
+| --- | --- | --- |
+| 4 deletions | The edit ended on October 1, 2026 | Pay the second code, no modifier |
+| 2 indicator changes to "modifier allowed" | The services were on separate anatomic sites | Pay the second code with modifier XS |
+| 1 indicator change to "modifier not allowed" | The new rule denies the second code | Deny the second code, no modifier |
+| 3 new hard bundles | A modifier does not bypass the edit | Deny the second code, no modifier |
 
-`lookup_edit` returns the row only on position 1 when the arguments name that session's pair and the date of service. Every other call returns `{"available": false}`. The result has no `outcome`, `status`, or `ok` field, so the medical pack does not store the lookup. `submit_answer` is exact on the two lines. Success stores the answer. Failure does not.
+The first six cases (30 claims) are two of each edit type. The full run is all ten cases.
 
-## Run
+Each claim tells the model the two codes, the date of service, and, for the separate-site cases, this sentence: "The column-two service was performed on a separate anatomic site." The claim text does not include the edit row. The policy for how to apply a row is in the instructions, and it is the same for every model:
+
+1. A deletion date on or before the date of service means the second code is paid, with no modifier.
+2. Modifier indicator 0 means the second code is denied. A modifier does not pay it.
+3. Modifier indicator 1, together with the separate-site sentence, means the second code is paid with modifier XS.
+4. Modifier indicator 1 without that sentence means the second code is denied.
+5. Modifier indicator 9 means there is no active edit, so the second code is paid with no modifier.
+
+XS is the only modifier this bench accepts. Modifiers 59, XE, XP, and XU are scored wrong. Dollar amounts are not part of the decision. The PTP file has no fees, and the graded outcome is whether the second code is paid or denied, and with which modifier.
+
+The model has two tools, on every claim:
+
+- `lookup_edit` returns the CMS row on the first claim when the model asks for that case's code pair and date. On claims 2 through 5 it returns `{"available": false}` and no row.
+- `submit_answer` submits the decision. The answer is exactly two lines, for example `column_2: pay` and `modifier: XS`.
+
+Causal reflection stores that answer only when it is exactly right. A wrong first answer is not replayed onto the later claims.
+
+## Measurement
+
+A claim is correct only when both lines match. Close wording, an extra modifier, or a swapped pay and deny is a miss.
+
+The headline number is the exact-match rate on claims 2 through 5, causal reflection minus the same model with no memory. Claim 1 is reported beside it. The report also splits claims 2 through 5 by edit type, and it lists the cost of each model.
+
+One check guards the setup: the number of lookup results on claims 2 through 5 that still contained the CMS row. That count is supposed to be zero. If it is not, the run did not hide the rule.
+
+`summary.md` in each run directory is the score report. Reprint it with:
+
+```bash
+.venv/bin/python -m ncci_bench report runs/<run-id>
+```
+
+## Models
+
+| Arm | What it is |
+| --- | --- |
+| `glm-baseline` | GLM 5.3 Flash, no memory between claims |
+| `glm-causal` | GLM 5.3 Flash with causal reflection |
+| `deepseek-baseline` | DeepSeek V4.1 Flash, no memory between claims |
+| `deepseek-causal` | DeepSeek V4.1 Flash with causal reflection |
+| `claude-haiku` | Claude Haiku 5.5 |
+| `claude-sonnet` | Claude Sonnet 5.5 |
+| `claude-opus` | Claude Opus 5.5 |
+
+The primary comparison is a causal arm against its own baseline. Claude is the frontier comparison on the same claims. List price for the tokens is included in the report. No prices are estimated beyond the published token rates.
+
+## Run the evaluation
 
 ```bash
 python -m venv .venv
@@ -39,31 +100,33 @@ python -m venv .venv
 cp .env.example .env
 ```
 
-Dry-run, no API calls:
+Put `FIREWORKS_API_KEY` and `BASED_API_KEY` in `.env` for the GLM pair. Add `ANTHROPIC_API_KEY` only when running Claude. Keys stay local.
+
+Preview the 30-claim slice without calling a model:
 
 ```bash
 .venv/bin/python -m ncci_bench run --sessions 6 --arms glm-baseline,glm-causal --dry-run
 ```
 
-Smoke, which you run. One session, five claims. Read the log for a finding on claims 2 through 5 before the gate:
+Run one case (5 claims) first:
 
 ```bash
 .venv/bin/python -m ncci_bench run --sessions 1 --arms glm-baseline,glm-causal
 ```
 
-Thirty-claim gate:
+Then the 30-claim slice, then the full 50:
 
 ```bash
 .venv/bin/python -m ncci_bench run --sessions 6 --arms glm-baseline,glm-causal
+.venv/bin/python -m ncci_bench run --sessions 10 --arms glm-baseline,glm-causal
 ```
 
-If positions 2 through 5 are ahead of the GLM baseline, run the other four sessions and then the Claude arms on the same fifty:
+Claude on the same 50 claims:
 
 ```bash
-.venv/bin/python -m ncci_bench run --sessions 10 --arms glm-baseline,glm-causal
 .venv/bin/python -m ncci_bench run --sessions 10 --arms claude-haiku,claude-sonnet,claude-opus
 ```
 
-A tie or a loss on the gate stops there. Claude is not part of the gate command.
+## Scope
 
-Arms are `glm-baseline`, `glm-causal`, `deepseek-baseline`, `deepseek-causal`, `claude-haiku`, `claude-sonnet`, and `claude-opus`. Decision calls use `tool_choice: auto` so a model can look the row up before it submits. The production API ignores `tool_choice`. Claude 5.5 requests omit temperature. Reprint a run with `python -m ncci_bench report runs/<run-id>`.
+This bench covers one payment decision: the current PTP edit for a code pair on one date of service. The code pairs are real CMS changes. The claim text around them is written for the evaluation. It is not a customer's claim history, a remittance, or a full billing workflow. Medical necessity, appeal letters, and dollar amounts are outside this score.

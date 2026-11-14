@@ -1,0 +1,19 @@
+{
+  "url": "https://www.cms.gov/files/zip/medicare-ncci-2026q4-practitioner-quarterly-additions-deletions-revisions-ptp.zip",
+  "sha256": "fd9d7fac88ddbf766c5a45d489225abbf2117dd9398d15258bbf6aee3e3f2ed9",
+  "effective_date": "2026-10-01",
+  "posted": "2026-09-01",
+  "files": [
+    "MCR_NCCI_Additions_Eff_10-01-2026.txt",
+    "MCR_NCCI_Deletions_Eff_10-01-2026.txt",
+    "MCR_NCCI_CCMIChgs_Eff_10-01-2026.txt"
+  ],
+  "counts": {
+    "additions": 4249,
+    "additions_indicator_0": 1539,
+    "additions_indicator_1": 2710,
+    "deletions": 14,
+    "indicator_changes": 7
+  },
+  "note": "Deletions and modifier-indicator changes match the 14 and 7 counts in the ClaimWork status paper for this quarter. That paper reported 1,119 additions. This CMS ZIP contains 4,249 addition rows. The pin locks the downloaded file."
+}

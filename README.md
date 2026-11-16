@@ -2,21 +2,39 @@
 
 This is a small, repeatable evaluation of [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on a medical billing decision. It uses public Medicare rules, not a customer's claims.
 
-The question is whether a model that keeps a correct earlier result does better on the next claims than the same model with no memory, and how that compares with Claude on cost and accuracy.
+On 20 claims where the edit table stays available, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5 on the first submission. Both were right on all 16 follow-up claims. Causal reflection cost $0.009. Opus cost $0.299. The full comparison is in [RESULTS.md](RESULTS.md).
 
 ## Goal
 
-Medicare will not pay two procedure codes together when a National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edit says the second code is already included in the first. That denial is usually reported as CO-97, "the benefit for this service is included in the payment for another service." The correct fix depends on the current edit:
+Medicare will not pay two procedure codes together when a National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edit says the second code is already included in the first. That denial is usually reported as CO-97, "the benefit for this service is included in the payment for another service." When the edit allows a modifier, the payer may still reject the modifier a coder tries first. The next claim for that pair should go out with the modifier that paid.
 
-- The edit was deleted, so both codes can be paid.
-- The edit is a hard bundle, so the second code is denied and a modifier does not change that.
-- The edit allows a modifier, and the documentation supports one specific modifier.
+In this evaluation the CMS row stays available on every claim. The row says a modifier is allowed. The instructions list 59, XE, XP, XS, and XU, and the payer's response to `submit_answer` is what decides among them. This payer accepts XS and rejects the others. A model with no memory can look the row up, submit the wrong modifier, read the rejection, and resubmit XS inside the same claim. Causal reflection keeps the accepted answer and can use it on the next claim in the case. The baseline is the same model, with the same text and the same payer responses, and no memory between claims. Claude sees the same claims and has no memory between them either.
 
-These rules change every quarter. A model that remembers an older edit will apply the wrong payment.
+## The evaluation
 
-In this bench, each case is five claims that share one real edit from the quarter effective October 1, 2026. The first claim can look the edit up. The next four claims are the same decision, and the lookup no longer returns the rule. Causal reflection keeps a correct first answer and can use it later. The baseline is the same model, seeing the same text and the same tool results, with no memory between claims. Claude sees the same claims and has no memory between them either.
+There are 20 claims: 4 cases, 5 claims each. The cases are the first four indicator-1 additions in the October 1, 2026 practitioner change file, in code order:
 
-The result that matters is accuracy on claims 2 through 5. Claim 1 shows whether the model can read the rule. Claims 2 through 5 show whether it still has that rule when the row is gone.
+| Pair | What the row says | What this payer pays |
+| --- | --- | --- |
+| 00530 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00532 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00534 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00537 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+
+Every claim names the two codes, the date of service October 15, 2026, and this sentence: "The column-two service was performed on a separate anatomic site." The claim text does not include the edit row, and it does not say that this payer wants XS.
+
+The model has two tools, on every claim:
+
+- `lookup_edit` returns the CMS row when the model asks for that case's code pair and date. The row stays available on claims 2 through 5.
+- `submit_answer` is the payer's decision. XS is accepted. Modifiers 59, XE, XP, and XU are rejected, and the rejection tells the model to resubmit with XS. The model may submit again inside the same claim.
+
+Causal reflection stores the accepted answer. A rejected submission is visible inside that claim and is not the fact replayed onto the next one.
+
+The headline is first-try correctness on claims 2 through 5: the first `submit_answer` was already `column_2: pay` / `modifier: XS`. The report also gives the final decision, how many submissions and lookups each claim took, and separate counts for a hold (no submission) and a submission the payer did not accept. Claim 1 is reported beside the headline. `summary.md` in each run directory is that report. Reprint it with:
+
+```bash
+.venv/bin/python -m ncci_bench report runs/<run-id>
+```
 
 ## Dataset
 
@@ -32,52 +50,6 @@ The copy in this repo is `data/ncci/practitioner-q4.zip`. `data/ncci/PIN.json` r
 
 The file lists code pairs and a modifier indicator. It does not include code descriptions, fees, or medical notes. The ZIP contains the AMA copyright notice that CMS ships with the file. This repo stores the pairs and indicators, not descriptions.
 
-Every claim uses the date of service October 15, 2026, so the October 1 rules are the ones in force. The correct decision does not change from one claim to the next inside a case.
-
-## The bench
-
-There are 50 claims: 10 cases, 5 claims each. The cases are real pairs from the change file.
-
-| Cases | Edit in the CMS file | Correct decision |
-| --- | --- | --- |
-| 4 deletions | The edit ended on October 1, 2026 | Pay the second code, no modifier |
-| 2 indicator changes to "modifier allowed" | The services were on separate anatomic sites | Pay the second code with modifier XS |
-| 1 indicator change to "modifier not allowed" | The new rule denies the second code | Deny the second code, no modifier |
-| 3 new hard bundles | A modifier does not bypass the edit | Deny the second code, no modifier |
-
-The first six cases (30 claims) are two of each edit type. The full run is all ten cases.
-
-Each claim tells the model the two codes, the date of service, and, for the separate-site cases, this sentence: "The column-two service was performed on a separate anatomic site." The claim text does not include the edit row. The policy for how to apply a row is in the instructions, and it is the same for every model:
-
-1. A deletion date on or before the date of service means the second code is paid, with no modifier.
-2. Modifier indicator 0 means the second code is denied. A modifier does not pay it.
-3. Modifier indicator 1, together with the separate-site sentence, means the second code is paid with modifier XS.
-4. Modifier indicator 1 without that sentence means the second code is denied.
-5. Modifier indicator 9 means there is no active edit, so the second code is paid with no modifier.
-
-XS is the only modifier this bench accepts. Modifiers 59, XE, XP, and XU are scored wrong. Dollar amounts are not part of the decision. The PTP file has no fees, and the graded outcome is whether the second code is paid or denied, and with which modifier.
-
-The model has two tools, on every claim:
-
-- `lookup_edit` returns the CMS row on the first claim when the model asks for that case's code pair and date. On claims 2 through 5 it returns `{"available": false}` and no row.
-- `submit_answer` submits the decision. The answer is exactly two lines, for example `column_2: pay` and `modifier: XS`.
-
-Causal reflection stores that answer only when it is exactly right. A wrong first answer is not replayed onto the later claims.
-
-## Measurement
-
-A claim is correct only when both lines match. Close wording, an extra modifier, or a swapped pay and deny is a miss.
-
-The headline number is the exact-match rate on claims 2 through 5, causal reflection minus the same model with no memory. Claim 1 is reported beside it. The report also splits claims 2 through 5 by edit type, and it lists the cost of each model.
-
-One check guards the setup: the number of lookup results on claims 2 through 5 that still contained the CMS row. That count is supposed to be zero. If it is not, the run did not hide the rule.
-
-`summary.md` in each run directory is the score report. Reprint it with:
-
-```bash
-.venv/bin/python -m ncci_bench report runs/<run-id>
-```
-
 ## Models
 
 | Arm | What it is |
@@ -90,7 +62,7 @@ One check guards the setup: the number of lookup results on claims 2 through 5 t
 | `claude-sonnet` | Claude Sonnet 5.5 |
 | `claude-opus` | Claude Opus 5.5 |
 
-The primary comparison is a causal arm against its own baseline. Claude is the frontier comparison on the same claims. List price for the tokens is included in the report. No prices are estimated beyond the published token rates.
+The published comparison is GLM 5.3 Flash against itself with causal reflection, and those two against Claude on the same 20 claims. DeepSeek V4.1 Flash is available as an arm and was not part of that run. List price for the tokens is included in the report. No prices are estimated beyond the published token rates.
 
 ## Run the evaluation
 
@@ -100,33 +72,33 @@ python -m venv .venv
 cp .env.example .env
 ```
 
-Put `FIREWORKS_API_KEY` and `BASED_API_KEY` in `.env` for the GLM pair. Add `ANTHROPIC_API_KEY` only when running Claude. Keys stay local.
+Put `FIREWORKS_API_KEY` and `BASED_API_KEY` in `.env` for the GLM pair. Add `ANTHROPIC_API_KEY` only when running Claude. Keys stay local. Use `.venv/bin/python` for the commands below.
 
-Preview the 30-claim slice without calling a model:
-
-```bash
-.venv/bin/python -m ncci_bench run --sessions 6 --arms glm-baseline,glm-causal --dry-run
-```
-
-Run one case (5 claims) first:
+Preview one case, then run the GLM pair on all 20 claims:
 
 ```bash
-.venv/bin/python -m ncci_bench run --sessions 1 --arms glm-baseline,glm-causal
+.venv/bin/python -m ncci_bench run --episode payer --sessions 1 --arms glm-baseline,glm-causal --dry-run
+.venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms glm-baseline,glm-causal
 ```
 
-Then the 30-claim slice, then the full 50:
+Claude on the same 20 claims:
 
 ```bash
-.venv/bin/python -m ncci_bench run --sessions 6 --arms glm-baseline,glm-causal
-.venv/bin/python -m ncci_bench run --sessions 10 --arms glm-baseline,glm-causal
+.venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms claude-haiku,claude-sonnet,claude-opus
 ```
 
-Claude on the same 50 claims:
+## Earlier episode
+
+`--episode table-off` is an earlier setup. The lookup returns the row on claim 1 and `{"available": false}` on claims 2 through 5. There are 50 claims, 10 cases. The score is exact match on claims 2 through 5, and a missing answer counts as a miss. Those results are the second section of [RESULTS.md](RESULTS.md). Omitting `--episode` runs the payer episode.
 
 ```bash
-.venv/bin/python -m ncci_bench run --sessions 10 --arms claude-haiku,claude-sonnet,claude-opus
+.venv/bin/python -m ncci_bench run --episode table-off --sessions 6 --arms glm-baseline,glm-causal --dry-run
+.venv/bin/python -m ncci_bench run --episode table-off --sessions 10 --arms glm-baseline,glm-causal
+.venv/bin/python -m ncci_bench run --episode table-off --sessions 10 --arms claude-haiku,claude-sonnet,claude-opus
 ```
+
+`--sessions 6` is 30 claims, two cases of each edit type. `--sessions 10` is the full 50.
 
 ## Scope
 
-This bench covers one payment decision: the current PTP edit for a code pair on one date of service. The code pairs are real CMS changes. The claim text around them is written for the evaluation. It is not a customer's claim history, a remittance, or a full billing workflow. Medical necessity, appeal letters, and dollar amounts are outside this score.
+This evaluation covers one payment decision: the current PTP edit for a code pair on one date of service, and which modifier this payer will accept. The code pairs are real CMS changes. The claim text around them is written for the evaluation. The four published cases all share column-two code `0932T`. Medical necessity, appeal letters, and dollar amounts are outside this score.

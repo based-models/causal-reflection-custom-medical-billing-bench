@@ -71,20 +71,27 @@ def _paired(
     baseline: str,
     causal: str,
     predicate: Any,
+    field: str = "exact",
 ) -> dict[str, Any] | None:
     base = _aligned(records, baseline, predicate)
     caus = _aligned(records, causal, predicate)
     keys = sorted(set(base) & set(caus))
     if not keys:
         return None
-    base_rate = sum(1 for key in keys if base[key].get("exact")) / len(keys)
-    caus_rate = sum(1 for key in keys if caus[key].get("exact")) / len(keys)
+    base_rate = sum(1 for key in keys if base[key].get(field)) / len(keys)
+    caus_rate = sum(1 for key in keys if caus[key].get(field)) / len(keys)
     return {
         "n": len(keys),
         "baseline": base_rate,
         "causal": caus_rate,
         "delta": caus_rate - base_rate,
     }
+
+
+def _mean(records: list[dict[str, Any]], field: str) -> float | None:
+    if not records:
+        return None
+    return sum(float(record.get(field) or 0) for record in records) / len(records)
 
 
 def _cost(records: list[dict[str, Any]]) -> float:
@@ -101,13 +108,19 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         by_arm[str(record.get("arm"))].append(record)
     arms = sorted(by_arm, key=lambda name: ARM_ORDER.index(name) if name in ARM_ORDER else 99)
     pair = _model_pair(arms)
+    payer = any(record.get("episode") == "payer" for record in records)
     later = lambda record: int(record.get("position") or 0) >= 2
     first = lambda record: int(record.get("position") or 0) == 1
     headline = None
+    final_later = None
     position_1 = None
+    position_1_first = None
     by_type: dict[str, dict[str, Any] | None] = {}
     if pair is not None:
-        headline = _paired(records, pair[0], pair[1], later)
+        headline = _paired(records, pair[0], pair[1], later, "first_try" if payer else "exact")
+        if payer:
+            final_later = _paired(records, pair[0], pair[1], later, "exact")
+            position_1_first = _paired(records, pair[0], pair[1], first, "first_try")
         position_1 = _paired(records, pair[0], pair[1], first)
         types = sorted({str(record.get("edit_type")) for record in records if record.get("edit_type")})
         for kind in types:
@@ -122,6 +135,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     for arm in arms:
         rows = by_arm[arm]
         scored = _ok(rows)
+        later_rows = [row for row in scored if int(row.get("position") or 0) >= 2]
         arm_rows.append(
             {
                 "arm": arm,
@@ -129,7 +143,14 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "n": len(scored),
                 "errors": sum(1 for row in rows if row.get("error")),
                 "exact": _rate(scored),
-                "later_exact": _rate([row for row in scored if int(row.get("position") or 0) >= 2]),
+                "later_exact": _rate(later_rows),
+                "later_first_try": (
+                    sum(1 for row in later_rows if row.get("first_try")) / len(later_rows) if later_rows else None
+                ),
+                "later_holds": sum(1 for row in later_rows if row.get("disposition") == "hold"),
+                "later_unaccepted": sum(1 for row in later_rows if row.get("disposition") == "wrong_payment"),
+                "later_lookups": _mean(later_rows, "lookup_count"),
+                "later_submits": _mean(later_rows, "round_trips"),
                 "position_1_exact": _rate([row for row in scored if int(row.get("position") or 0) == 1]),
                 "cost_usd": _cost(rows),
                 "tool_called": (
@@ -138,10 +159,13 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
     return {
+        "episode": "payer" if payer else "table-off",
         "arms": arm_rows,
         "pair": {"baseline": pair[0], "causal": pair[1]} if pair else None,
         "headline_later": headline,
+        "final_later": final_later,
         "position_1": position_1,
+        "position_1_first": position_1_first,
         "later_by_type": by_type,
         "later_row_leaks": leaks,
     }
@@ -159,7 +183,15 @@ def _signed(value: float | None) -> str:
     return f"{value * 100:+.1f} pp"
 
 
+def _num(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
+    if summary.get("episode") == "payer":
+        return _render_payer(summary)
     lines = ["# NCCI PTP change bench", ""]
     pair = summary.get("pair")
     headline = summary.get("headline_later")
@@ -204,6 +236,51 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"| {kind} | {_pct(paired['causal'])} | {_pct(paired['baseline'])} | "
                 f"{_signed(paired['delta'])} | {paired['n']} |"
             )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_payer(summary: dict[str, Any]) -> str:
+    lines = ["# NCCI payer-rejection episode", ""]
+    pair = summary.get("pair")
+    headline = summary.get("headline_later")
+    if pair and headline:
+        lines.append(
+            "First submission already correct, claims 2-5, "
+            f"{_label(pair['causal'])} minus {_label(pair['baseline'])}: "
+            f"{_signed(headline['delta'])} "
+            f"({_pct(headline['causal'])} vs {_pct(headline['baseline'])}, n={headline['n']})."
+        )
+    else:
+        lines.append("Paired headline needs a baseline arm and its matching causal arm on the same claims.")
+    final = summary.get("final_later")
+    if final:
+        lines.append(
+            "Final decision after the payer response, claims 2-5: "
+            f"{_signed(final['delta'])} "
+            f"({_pct(final['causal'])} vs {_pct(final['baseline'])}, n={final['n']})."
+        )
+    lines.append(
+        "A hold is a claim with no submission. An unaccepted claim ended on a submission the payer rejected. "
+        "Those are counted separately."
+    )
+    lines.append("")
+    lines.append("| Arm | First try, claims 2-5 | Final, claims 2-5 | Holds | Unaccepted | Lookups | Submits | Cost | Errors |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for row in summary["arms"]:
+        lines.append(
+            f"| {row['label']} | {_pct(row['later_first_try'])} | {_pct(row['later_exact'])} | "
+            f"{row['later_holds']} | {row['later_unaccepted']} | {_num(row['later_lookups'])} | "
+            f"{_num(row['later_submits'])} | ${row['cost_usd']:.4f} | {row['errors']} |"
+        )
+    lines.append("")
+    opening = summary.get("position_1_first")
+    if opening:
+        lines.append(
+            f"Claim 1, first submission already correct: {_signed(opening['delta'])} "
+            f"({_pct(opening['causal'])} vs {_pct(opening['baseline'])}, n={opening['n']}). "
+            "Claim 1 is where the payer rejection can be learned. It is not the win."
+        )
         lines.append("")
     return "\n".join(lines)
 

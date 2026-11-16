@@ -1,9 +1,10 @@
 """Tool result for lookup_edit.
 
-Position 1 returns the pinned row when the arguments name that pair and the
-claim's date of service. Every other call returns {"available": false} and
-none of the row fields. The result has no outcome, status, or ok key, so the
-medical pack does not store it.
+On the table-off episode, position 1 returns the pinned row when the arguments
+name that pair and the claim's date of service. Every other call returns
+{"available": false} and none of the row fields. On the payer episode the same
+row is returned on every claim. The result has no outcome, status, or ok key,
+so the medical pack does not store it.
 """
 
 from __future__ import annotations
@@ -50,8 +51,12 @@ def _matches(item: Item, arguments: dict[str, Any]) -> bool:
 
 def lookup_result(item: Item, arguments: str | dict[str, Any] | None) -> dict[str, Any]:
     parsed = parse_arguments(arguments)
-    position = int(item.meta["position"])
-    if position != 1 or not _matches(item, parsed):
+    matched = _matches(item, parsed)
+    # The payer episode leaves the table on for every claim in the session.
+    if item.meta.get("episode") == "payer":
+        if not matched:
+            return unavailable()
+    elif int(item.meta["position"]) != 1 or not matched:
         return unavailable()
     return {
         "column_1": item.meta["column_1"],
@@ -68,8 +73,11 @@ def result_json(payload: dict[str, Any]) -> str:
 
 
 def row_leaked(payload: str, item: Item) -> bool:
-    """True when a position 2-5 tool result contains the edit row."""
-    if int(item.meta["position"]) == 1:
+    """True when a position 2-5 tool result contains the edit row.
+
+    The payer episode is supposed to return that row on every claim.
+    """
+    if item.meta.get("episode") == "payer" or int(item.meta["position"]) == 1:
         return False
     markers = [
         str(item.meta["column_1"]),

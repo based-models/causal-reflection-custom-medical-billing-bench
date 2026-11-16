@@ -87,10 +87,7 @@ def decision_tools(item: Item) -> list[dict[str, Any]]:
                         },
                         "answer": {
                             "type": "string",
-                            "description": (
-                                "Exactly two lines. First line column_2: pay or column_2: deny. "
-                                "Second line modifier: none or modifier: XS."
-                            ),
+                            "description": _answer_description(item),
                         },
                     },
                     "required": ["summary", "answer"],
@@ -100,8 +97,29 @@ def decision_tools(item: Item) -> list[dict[str, Any]]:
     ]
 
 
+def _answer_description(item: Item) -> str:
+    if item.meta.get("episode") == "payer":
+        return (
+            "Exactly two lines. First line column_2: pay or column_2: deny. "
+            "Second line modifier: none, modifier: 59, modifier: XE, modifier: XP, "
+            "modifier: XS, or modifier: XU. The payer response says whether it was accepted."
+        )
+    return (
+        "Exactly two lines. First line column_2: pay or column_2: deny. "
+        "Second line modifier: none or modifier: XS."
+    )
+
+
 def reminder_text(item: Item) -> str:
     token = str(item.meta["summary"])
+    if item.meta.get("episode") == "payer":
+        return (
+            "You must call the submit_answer tool. "
+            f"summary must be exactly {token}. "
+            'answer is exactly two lines. The first is "column_2: pay" or "column_2: deny". '
+            'The second is "modifier: none", "modifier: 59", "modifier: XE", "modifier: XP", '
+            '"modifier: XS", or "modifier: XU".'
+        )
     return (
         "You must call the submit_answer tool. "
         f"summary must be exactly {token}. "

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ncci-bench"
 version = "0.1.0"
-description = "PTP change-file bench for causal reflection on medical billing."
+description = "Public Medicare PTP bench for causal reflection: a payer modifier the CMS row does not name."
 requires-python = ">=3.11"
 dependencies = ["httpx>=0.27"]
 

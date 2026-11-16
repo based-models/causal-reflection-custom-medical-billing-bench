@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ncci_bench.payer import PAYER_SESSIONS, build_payer_tasks
 from ncci_bench.providers import Client, load_dotenv, missing_keys, parse_arms
 from ncci_bench.report import emit_summary
 from ncci_bench.runner import append_jsonl, completed_pairs, run_item
@@ -27,10 +28,22 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     run.add_argument(
+        "--episode",
+        choices=("payer", "table-off"),
+        default="payer",
+        help=(
+            "payer leaves the lookup on and rejects modifier 59 until the claim is resubmitted with XS. "
+            "table-off hides the edit after claim 1. payer is the default."
+        ),
+    )
+    run.add_argument(
         "--sessions",
         type=int,
         default=1,
-        help=f"First N sessions in bench order, 1..{SESSION_COUNT}. 1 is the smoke. {GATE_SESSIONS} is the 30-claim gate.",
+        help=(
+            f"First N sessions. payer is 1..{PAYER_SESSIONS}. "
+            f"table-off is 1..{SESSION_COUNT} ({GATE_SESSIONS} is 30 claims)."
+        ),
     )
     run.add_argument("--temperature", type=float, default=0.0)
     run.add_argument("--max-tokens", type=int, default=2048)
@@ -51,10 +64,18 @@ def main(argv: list[str] | None = None) -> None:
     _run(args)
 
 
-def _run(args: argparse.Namespace) -> None:
+def _load_items(args: argparse.Namespace) -> list:
+    if args.episode == "payer":
+        if args.sessions < 1 or args.sessions > PAYER_SESSIONS:
+            raise SystemExit(f"--sessions must be 1..{PAYER_SESSIONS} for --episode payer")
+        return slice_sessions(build_payer_tasks(), args.sessions)
     if args.sessions < 1 or args.sessions > SESSION_COUNT:
         raise SystemExit(f"--sessions must be 1..{SESSION_COUNT}")
-    items = slice_sessions(load_tasks(), args.sessions)
+    return slice_sessions(load_tasks(), args.sessions)
+
+
+def _run(args: argparse.Namespace) -> None:
+    items = _load_items(args)
     arms = parse_arms(args.arms)
     if args.dry_run:
         _print_dry_run(items, arms)
@@ -71,6 +92,7 @@ def _run(args: argparse.Namespace) -> None:
         json.dumps(
             {
                 "run_id": run_id,
+                "episode": args.episode,
                 "sessions": args.sessions,
                 "claims": len(items),
                 "arms": [arm.name for arm in arms],
@@ -102,14 +124,26 @@ def _run(args: argparse.Namespace) -> None:
                 append_jsonl(path, record)
                 usage = record.get("usage") or {}
                 cost = usage.get("cost_usd")
-                mark = "exact" if record.get("exact") else "miss"
-                if record.get("error"):
-                    mark = "error"
-                print(
-                    f"{arm.name} {item.item_id} {mark} "
-                    f"lookups={record.get('lookup_count')} ${float(cost or 0):.4f}",
-                    flush=True,
-                )
+                if record.get("episode") == "payer":
+                    first = "yes" if record.get("first_try") else "no"
+                    mark = str(record.get("disposition") or "miss")
+                    if record.get("error"):
+                        mark = "error"
+                    print(
+                        f"{arm.name} {item.item_id} {mark} first={first} "
+                        f"submits={record.get('round_trips')} lookups={record.get('lookup_count')} "
+                        f"${float(cost or 0):.4f}",
+                        flush=True,
+                    )
+                else:
+                    mark = "exact" if record.get("exact") else "miss"
+                    if record.get("error"):
+                        mark = "error"
+                    print(
+                        f"{arm.name} {item.item_id} {mark} "
+                        f"lookups={record.get('lookup_count')} ${float(cost or 0):.4f}",
+                        flush=True,
+                    )
     finally:
         client.close()
     print(emit_summary(root), end="")
@@ -120,6 +154,8 @@ def _print_dry_run(items: list, arms: list) -> None:
     for item in items:
         if item.session_key not in sessions:
             sessions.append(item.session_key)
+    episode = items[0].meta.get("episode") if items else "table-off"
+    print(f"episode {episode if episode == 'payer' else 'table-off'}")
     print(f"sessions {len(sessions)}")
     print(f"claims {len(items)}")
     print("arms " + ", ".join(arm.name for arm in arms))

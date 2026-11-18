@@ -2,7 +2,7 @@
 
 Medicare publishes a table of procedure-code pairs called the NCCI procedure-to-procedure (PTP) edits. Each row says that the second code is already included in the first, and whether a modifier can still get that second code paid. The table changes every quarter. This repository evaluates [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on that decision, using the public practitioner changes effective October 1, 2026. The code pairs are real rows from that file. The claim text around them is written for the evaluation.
 
-The question is what happens on the next claim for the same pair. The model can look the row up every time, submit, and read whether the payer accepted the modifier. Remembering the modifier that paid means the next claim is right on the first submission, without another rejection. On 20 of these claims, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5: both were right on all 16 follow-up claims. Causal reflection cost $0.009, about 3% of Opus at $0.299. The comparison is in [RESULTS.md](RESULTS.md).
+The question is what happens on the next claim for the same pair. The model can look the row up every time, submit, and read whether the payer accepted the modifier. Remembering the modifier that paid means the next claim is right on the first submission, without another rejection. On 20 of these claims, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5: both were right on all 16 follow-up claims. **Causal reflection cost $0.009, about 3% of Opus at $0.299.** The comparison is in [RESULTS.md](RESULTS.md).
 
 ## Goal
 

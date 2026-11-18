@@ -20,7 +20,7 @@ Costs are list price for all 20 claims. First-try and final rates are claims 2 t
 | Claude Sonnet 5.5 | 25.0% (4/16) | 100% | 1.75 | $0.206 |
 | Claude Haiku 5.5 | 6.2% (1/16) | 100% | 1.94 | $0.013 |
 
-Every model finished on `column_2: pay` / `modifier: XS`. Causal reflection matched Opus: all 16 later claims were right on the first submission. The cost was $0.009, about 3% of Opus at $0.299. Haiku, Sonnet, and Opus together cost $0.52.
+Every model finished on `column_2: pay` / `modifier: XS`. Causal reflection matched Opus: all 16 later claims were right on the first submission. **The cost was $0.009, about 3% of Opus at $0.299.** Haiku, Sonnet, and Opus together cost $0.52.
 
 Haiku, Sonnet, and GLM with no memory also reached the right payment. On most later claims they needed a second submission, after the payer rejected the first. Haiku corrected 15 of those 16 claims inside the claim and still missed the first submission on the next one. Sonnet did that on 12 of 16.
 

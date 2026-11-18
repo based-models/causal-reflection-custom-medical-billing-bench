@@ -79,6 +79,7 @@ OPUS = Rates(
 RATES: dict[str, Rates] = {
     "glm-baseline": GLM,
     "glm-causal": GLM,
+    "glm-api": GLM,
     "deepseek-baseline": DEEPSEEK,
     "deepseek-causal": DEEPSEEK,
     "claude-haiku": HAIKU,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ncci_bench.providers import anthropic_body, openai_body
+from ncci_bench.providers import ARMS, anthropic_body, env_var_for, openai_body, plain_headers
 
 
 def test_every_arm_can_choose_lookup_before_submit() -> None:
@@ -70,3 +70,14 @@ def test_every_arm_can_choose_lookup_before_submit() -> None:
     result = haiku["messages"][2]
     assert result["content"][0]["type"] == "tool_result"
     assert result["content"][0]["content"] == '{"available": false}'
+
+
+def test_plain_glm_uses_the_model_api_without_a_session() -> None:
+    arm = ARMS["glm-api"]
+    assert arm.model == "glm-5.3-flash"
+    assert arm.kind == "plain"
+    assert env_var_for(arm) == "BASED_API_KEY"
+    headers = plain_headers("test-key")
+    assert headers["Authorization"] == "Bearer test-key"
+    assert "X-Session-Id" not in headers
+    assert "X-Workload" not in headers

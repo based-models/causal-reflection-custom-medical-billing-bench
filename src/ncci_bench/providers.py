@@ -45,6 +45,12 @@ ARMS: dict[str, Arm] = {
         "glm-5.3-flash:causal-reflection",
         "GLM 5.3 Flash + causal reflection",
     ),
+    "glm-api": Arm(
+        "glm-api",
+        "plain",
+        "glm-5.3-flash",
+        "GLM 5.3 Flash via model API",
+    ),
     "deepseek-baseline": Arm(
         "deepseek-baseline",
         "fireworks",
@@ -141,15 +147,20 @@ def load_dotenv(path: str = ".env") -> None:
 def env_var_for(arm: Arm) -> str:
     if arm.kind == "fireworks":
         return "FIREWORKS_API_KEY"
-    if arm.kind == "causal":
+    if arm.kind in {"causal", "plain"}:
         return "BASED_API_KEY"
     return "ANTHROPIC_API_KEY"
 
 
 def key_for(arm: Arm) -> str:
-    if arm.kind == "causal":
+    if arm.kind in {"causal", "plain"}:
         return os.environ.get("BASED_API_KEY", "").strip() or os.environ.get("CRA_API_KEY", "").strip()
     return os.environ.get(env_var_for(arm), "").strip()
+
+
+def plain_headers(api_key: str) -> dict[str, str]:
+    """Auth only. A session header would attach the call to a recorded session."""
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
 def missing_keys(arms: list[Arm]) -> list[str]:
@@ -452,6 +463,9 @@ class Client:
         if arm.kind == "causal":
             url = causal_base_url() + "/chat/completions"
             headers = causal_headers(api_key, session_id or "", run_id or "", workload)
+        elif arm.kind == "plain":
+            url = causal_base_url() + "/chat/completions"
+            headers = plain_headers(api_key)
         else:
             url = FIREWORKS_URL
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> None:
         "--arms",
         default="glm-baseline,glm-causal",
         help=(
-            "Comma-separated: glm-baseline, glm-causal, deepseek-baseline, "
+            "Comma-separated: glm-baseline, glm-api, glm-causal, deepseek-baseline, "
             "deepseek-causal, claude-haiku, claude-sonnet, claude-opus."
         ),
     )

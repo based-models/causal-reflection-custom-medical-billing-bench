@@ -1,12 +1,12 @@
 # Results
 
-## Payer episode
+## The edit row stays available
 
-Twenty claims, four real edits from the CMS practitioner PTP change file effective October 1, 2026. Each case is five claims that share one code pair. The edit table is available on every claim. This payer accepts modifier XS and rejects 59, XE, XP, and XU. A model can read that rejection and resubmit XS inside the same claim.
+Medicare's PTP edit table lists procedure-code pairs and whether a modifier can still get the second code paid. These 20 claims use four real rows from the public practitioner changes effective October 1, 2026. Each case is five claims for one pair. The model can look that row up on every claim. The row says a modifier is allowed. This payer accepts XS and rejects 59, XE, XP, and XU. After a rejection, the model can resubmit XS inside the same claim.
 
-The number that matters is the first submission on claims 2 through 5. Claim 1 is where the payer's response can be learned. A correct final answer after a rejection counts as a recovered claim, and it is reported beside the first-try rate. A claim with no submission is a hold. A claim that ends on a submission the payer rejected is counted on its own. Both of those were zero in these runs.
+The score is the first submission on claims 2 through 5: was it already `pay` / `XS`? Claim 1 is where the payer's answer can be learned. Final is the payment after any resubmission. Submits is the average number of submissions on those later claims. A hold is a claim with no submission. An unaccepted claim ended on a submission the payer rejected. Both of those were zero.
 
-GLM runs are `20261116T012256Z`. Claude runs are `20261116T022233Z`. No request failed. Every lookup returned the edit row.
+GLM runs are `20261116T012256Z`. Claude runs are `20261116T022233Z`. No request failed. Every lookup returned the row.
 
 ### Score and cost
 
@@ -20,9 +20,9 @@ Costs are list price for all 20 claims. First-try and final rates are claims 2 t
 | Claude Sonnet 5.5 | 25.0% (4/16) | 100% | 1.75 | $0.206 |
 | Claude Haiku 5.5 | 6.2% (1/16) | 100% | 1.94 | $0.013 |
 
-Every model finished on `column_2: pay` / `modifier: XS`. Causal reflection matched Opus on the first submission. The cost was $0.009 against Opus's $0.299. Haiku, Sonnet, and Opus together cost $0.52.
+Every model finished on `column_2: pay` / `modifier: XS`. Causal reflection matched Opus: all 16 later claims were right on the first submission. The cost was $0.009, about 3% of Opus at $0.299. Haiku, Sonnet, and Opus together cost $0.52.
 
-Haiku, Sonnet, and the GLM baseline also reached the right payment. On most later claims they did it on a second submission, after the payer rejected the first one. Haiku recovered inside 15 of 16 later claims and still missed the first submission on the next claim. Sonnet did the same on 12 of 16.
+Haiku, Sonnet, and GLM with no memory also reached the right payment. On most later claims they needed a second submission, after the payer rejected the first. Haiku corrected 15 of those 16 claims inside the claim and still missed the first submission on the next one. Sonnet did that on 12 of 16.
 
 ### By case
 
@@ -37,13 +37,13 @@ Counts are the first submission on claims 2 through 5.
 
 On the opening claim, Opus sent XS first in all 4 cases. Causal reflection did so in 3. On `00534` / `0932T` it missed that opening claim, the payer rejected the submission, and the next four claims were XS on the first try. Sonnet sent XS first on the opening claim of `00530` / `0932T` and `00534` / `0932T`, then missed most of the claims that followed in those cases (1/4 and 2/4).
 
-### Scope of this episode
+### What this slice covers
 
-The four pairs are indicator-1 additions, and all four use column-two code `0932T`. The claim text is written for the evaluation. The log stores the final answer, so a missed first try means that submission was not `pay` / `XS`. The rejected modifier itself is not in the file.
+The four rows are ones where Medicare allows a modifier. All four share the second code `0932T`. The claim text is written for the evaluation. The saved answer is the final one, so a missed first try means that submission was not `pay` / `XS`. The text of the rejected modifier is not in the log.
 
-## Earlier run: lookup turned off after claim 1
+## Earlier run: the lookup was turned off after claim 1
 
-The scores below are a different setup. `lookup_edit` returns the edit on claim 1 and `{"available": false}` on claims 2 through 5. A model that will not guess a payment when the row is missing scores the same as a model that pays a bundled line. The payer episode above leaves the lookup on, which is how a billing workflow actually runs. These numbers are kept so the earlier run can be reproduced.
+This is a different setup, kept so that run can be reproduced. The comparison above is the one where the model can look the row up on every claim. Here the lookup returned the row on claim 1 and `{"available": false}` on claims 2 through 5. A model that declined to guess a payment scored the same as a model that paid a bundled line.
 
 Fifty claims, ten real edits. A claim counts only when both lines match: whether the second code is paid or denied, and the modifier (`none` or `XS`). A missing answer scores as a miss. GLM runs are `20261114T202044Z`. Claude runs are `20261114T203433Z`. No request failed. No lookup on claims 2 through 5 contained the edit row.
 

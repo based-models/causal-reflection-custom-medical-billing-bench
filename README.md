@@ -1,8 +1,8 @@
 # Causal reflection on Medicare bundling edits
 
-This is a small, repeatable evaluation of [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on a medical billing decision. It uses public Medicare rules, not a customer's claims.
+Medicare publishes a table of procedure-code pairs called the NCCI procedure-to-procedure (PTP) edits. Each row says that the second code is already included in the first, and whether a modifier can still get that second code paid. The table changes every quarter. This repository evaluates [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on that decision, using the public practitioner changes effective October 1, 2026. The code pairs are real rows from that file. The claim text around them is written for the evaluation.
 
-On 20 claims where the edit table stays available, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5 on the first submission. Both were right on all 16 follow-up claims. Causal reflection cost $0.009. Opus cost $0.299. The full comparison is in [RESULTS.md](RESULTS.md).
+The question is what happens on the next claim for the same pair. The model can look the row up every time, submit, and read whether the payer accepted the modifier. Remembering the modifier that paid means the next claim is right on the first submission, without another rejection. On 20 of these claims, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5: both were right on all 16 follow-up claims. Causal reflection cost $0.009, about 3% of Opus at $0.299. The comparison is in [RESULTS.md](RESULTS.md).
 
 ## Goal
 
@@ -56,8 +56,6 @@ The file lists code pairs and a modifier indicator. It does not include code des
 | --- | --- |
 | `glm-baseline` | GLM 5.3 Flash, no memory between claims |
 | `glm-causal` | GLM 5.3 Flash with causal reflection |
-| `deepseek-baseline` | DeepSeek V4.1 Flash, no memory between claims |
-| `deepseek-causal` | DeepSeek V4.1 Flash with causal reflection |
 | `claude-haiku` | Claude Haiku 5.5 |
 | `claude-sonnet` | Claude Sonnet 5.5 |
 | `claude-opus` | Claude Opus 5.5 |

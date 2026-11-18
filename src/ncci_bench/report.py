@@ -10,6 +10,7 @@ from ncci_bench.runner import read_jsonl
 
 ARM_ORDER = (
     "glm-baseline",
+    "glm-api",
     "glm-causal",
     "deepseek-baseline",
     "deepseek-causal",
@@ -19,6 +20,7 @@ ARM_ORDER = (
 )
 ARM_LABELS = {
     "glm-baseline": "GLM 5.3 Flash",
+    "glm-api": "GLM 5.3 Flash via model API",
     "glm-causal": "GLM 5.3 Flash + causal reflection",
     "deepseek-baseline": "DeepSeek V4.1 Flash",
     "deepseek-causal": "DeepSeek V4.1 Flash + causal reflection",

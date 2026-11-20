@@ -1,68 +1,64 @@
-# Causal reflection on Medicare bundling edits
+# Medical Billing Benchmark: AI Agents That Learn From Payer Feedback
 
-Medicare publishes a table of procedure-code pairs called the NCCI procedure-to-procedure (PTP) edits. Each row says that the second code is already included in the first, and whether a modifier can still get that second code paid. The table changes every quarter. This repository evaluates [causal reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) on that decision, using the public practitioner changes effective October 1, 2026. The code pairs are real rows from that file. The claim text around them is written for the evaluation.
+100% first-pass accuracy. 97% lower inference cost than Claude Opus 5.5. No retraining.
 
-The question is what happens on the next claim for the same pair. The model can look the row up every time, submit, and read whether the payer accepted the modifier. Remembering the modifier that paid means the next claim is right on the first submission, without another rejection. On 20 of these claims, GLM 5.3 Flash with causal reflection matched Claude Opus 5.5: both were right on all 16 follow-up claims. **Causal reflection cost $0.009, about 3% of Opus at $0.299.** The comparison is in [RESULTS.md](RESULTS.md).
+Medical billing agents need to do more than identify the right codes. They need to learn from payer feedback so they don't repeat the same mistakes across claims. This open-source benchmark evaluates [Causal Reflection](https://www.basedmodels.com/blog/introducing-causal-reflection), a method that enables AI models to learn from previous outcomes without retraining. Using real Medicare coding edits and simulated payer responses, we demonstrate how a low-cost model can match frontier-model accuracy while reducing unnecessary claim resubmissions.
 
-## Goal
+## Results
 
-Medicare will not pay two procedure codes together when a National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edit says the second code is already included in the first. That denial is usually reported as CO-97, "the benefit for this service is included in the payment for another service." When the edit allows a modifier, the payer may still reject the modifier a coder tries first. The next claim for that pair should go out with the modifier that paid.
+We evaluated five model configurations across 20 simulated claims using real Medicare National Correct Coding Initiative (NCCI) procedure-to-procedure edits. The primary metric is first-pass accuracy on follow-up claims: does the agent submit the correct payment decision and modifier on its first attempt, without requiring another rejection?
 
-In this evaluation the CMS row stays available on every claim. The row says a modifier is allowed. The instructions list 59, XE, XP, XS, and XU, and the payer's response to `submit_answer` is what decides among them. This payer accepts XS and rejects the others. A model with no memory can look the row up, submit the wrong modifier, read the rejection, and resubmit XS inside the same claim. Causal reflection keeps the accepted answer and can use it on the next claim in the case. The baseline is the same model, with the same text and the same payer responses, and no memory between claims. Claude sees the same claims and has no memory between them either.
+| Model | First-pass accuracy | Submissions per follow-up claim | Total inference cost |
+| --- | ---: | ---: | ---: |
+| GLM 5.3 Flash + Causal Reflection | 100% | 1.00 | $0.009 |
+| Claude Opus 5.5 | 100% | 1.00 | $0.299 |
+| GLM 5.3 Flash | 56.2% | 1.44 | $0.008 |
+| Claude Sonnet 5.5 | 25.0% | 1.75 | $0.206 |
+| Claude Haiku 5.5 | 6.2% | 1.94 | $0.013 |
 
-## The evaluation
+Accuracy measures the first submission on 16 follow-up claims across four coding scenarios. Costs cover all 20 claims at published token rates. Every model ultimately reached the correct decision after permitted retries.
 
-There are 20 claims: 4 cases, 5 claims each. The cases are the first four indicator-1 additions in the October 1, 2026 practitioner change file, in code order:
+Key findings:
 
-| Pair | What the row says | What this payer pays |
-| --- | --- | --- |
-| 00530 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
-| 00532 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
-| 00534 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
-| 00537 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+- Frontier-level accuracy: Causal Reflection matched Claude Opus on all 16 follow-up claims.
+- **97% lower cost: $0.009 versus $0.299 in total inference cost.**
+- Fewer retries: first-pass accuracy improved from 56.2% to 100% compared with the same GLM model without Causal Reflection.
+- No retraining: improvements come from retaining and reusing successful outcomes, not updating model weights.
 
-Every claim names the two codes, the date of service October 15, 2026, and this sentence: "The column-two service was performed on a separate anatomic site." The claim text does not include the edit row, and it does not say that this payer wants XS.
+See [RESULTS.md](RESULTS.md) for detailed results and reproducible comparisons.
 
-The model has two tools, on every claim:
+## How It Works
 
-- `lookup_edit` returns the CMS row when the model asks for that case's code pair and date. The row stays available on claims 2 through 5.
-- `submit_answer` is the payer's decision. XS is accepted. Modifiers 59, XE, XP, and XU are rejected, and the rejection tells the model to resubmit with XS. The model may submit again inside the same claim.
+The benchmark simulates a common medical billing problem: a payer rejects a claim because the submitted procedure codes require a specific modifier. In this evaluation, the payer accepts XS (a modifier indicating a service was performed at a separate anatomical site) and rejects alternatives: 59, XE, XP, and XU.
 
-Causal reflection stores the accepted answer. A rejected submission is visible inside that claim and is not the fact replayed onto the next one.
+1. Look up the coding rule. The agent retrieves the applicable Medicare NCCI edit to determine whether a modifier is permitted.
+2. Submit the claim. The agent selects a modifier and receives simulated payer feedback. Incorrect modifiers are rejected.
+3. Learn from the outcome. Causal Reflection retains the accepted modifier (XS) for that code pair.
+4. Apply it to the next claim. When the same scenario occurs again, the agent uses XS on its first submission, avoiding another rejection.
 
-The headline is first-try correctness on claims 2 through 5: the first `submit_answer` was already `column_2: pay` / `modifier: XS`. The report also gives the final decision, how many submissions and lookups each claim took, and separate counts for a hold (no submission) and a submission the payer did not accept. Claim 1 is reported beside the headline. `summary.md` in each run directory is that report. Reprint it with:
+Without Causal Reflection, the model can repeat the same mistake on subsequent claims, even after correcting it previously. With Causal Reflection, the agent remembers what worked.
 
-```bash
-.venv/bin/python -m ncci_bench report runs/<run-id>
-```
+## Benchmark Design
 
-## Dataset
+The evaluation uses the public CMS NCCI practitioner edits, effective October 1, 2026.
 
-The source is the public CMS practitioner PTP quarterly change file, effective October 1, 2026, posted September 1, 2026:
+Test configuration:
 
-https://www.cms.gov/files/zip/medicare-ncci-2026q4-practitioner-quarterly-additions-deletions-revisions-ptp.zip
+- 20 claims across four real Medicare procedure-code pairs
+- Five consecutive claims per code pair
+- Synthetic claim narratives and simulated payer responses
+- Access to CMS coding rules on every claim
+- Five model configurations, including a same-model baseline
 
-The copy in this repo is `data/ncci/practitioner-q4.zip`. `data/ncci/PIN.json` records the download URL and the SHA-256. The bench reads the text tables in that ZIP:
+The benchmark tests whether an agent retains and applies a previously successful modifier. The correct modifier is XS for all four scenarios. Unlike a static coding knowledge test, this evaluation measures whether an agent improves its decisions from prior feedback.
 
-- 4,249 added edits (1,539 where a modifier is not allowed, 2,710 where a modifier may be allowed)
-- 14 deleted edits
-- 7 edits whose modifier indicator changed
+### Evaluation metrics
 
-The file lists code pairs and a modifier indicator. It does not include code descriptions, fees, or medical notes. The ZIP contains the AMA copyright notice that CMS ships with the file. This repo stores the pairs and indicators, not descriptions.
+The primary metric is first-pass accuracy on claims 2–5 of each scenario. The first claim provides an opportunity to discover the payer's accepted modifier. We also measure final accuracy after retries, number of claim submissions, coding-rule lookups, and inference cost.
 
-## Models
+## Run the Benchmark
 
-| Arm | What it is |
-| --- | --- |
-| `glm-baseline` | GLM 5.3 Flash, no memory between claims |
-| `glm-causal` | GLM 5.3 Flash with causal reflection |
-| `claude-haiku` | Claude Haiku 5.5 |
-| `claude-sonnet` | Claude Sonnet 5.5 |
-| `claude-opus` | Claude Opus 5.5 |
-
-The published comparison is GLM 5.3 Flash against itself with causal reflection, and those two against Claude on the same 20 claims. DeepSeek V4.1 Flash is available as an arm and was not part of that run. List price for the tokens is included in the report. No prices are estimated beyond the published token rates.
-
-## Run the evaluation
+1. Install
 
 ```bash
 python -m venv .venv
@@ -70,33 +66,78 @@ python -m venv .venv
 cp .env.example .env
 ```
 
-Put `FIREWORKS_API_KEY` and `BASED_API_KEY` in `.env` for the GLM pair. Add `ANTHROPIC_API_KEY` only when running Claude. Keys stay local. Use `.venv/bin/python` for the commands below.
+2. Configure API keys
 
-Preview one case, then run the GLM pair on all 20 claims:
+Add the following to `.env`:
+
+- `FIREWORKS_API_KEY` — GLM baseline
+- `BASED_API_KEY` — GLM with Causal Reflection
+- `ANTHROPIC_API_KEY` — Claude comparisons (optional)
+
+API keys remain local.
+
+3. Run the evaluation
+
+Preview one scenario:
 
 ```bash
 .venv/bin/python -m ncci_bench run --episode payer --sessions 1 --arms glm-baseline,glm-causal --dry-run
+```
+
+Run all 20 claims with and without Causal Reflection:
+
+```bash
 .venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms glm-baseline,glm-causal
 ```
 
-Claude on the same 20 claims:
+Compare against Claude:
 
 ```bash
 .venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms claude-haiku,claude-sonnet,claude-opus
 ```
 
-## Earlier episode
-
-`--episode table-off` is an earlier setup. The lookup returns the row on claim 1 and `{"available": false}` on claims 2 through 5. There are 50 claims, 10 cases. The score is exact match on claims 2 through 5, and a missing answer counts as a miss. Those results are the second section of [RESULTS.md](RESULTS.md). Omitting `--episode` runs the payer episode.
+Generate a report:
 
 ```bash
-.venv/bin/python -m ncci_bench run --episode table-off --sessions 6 --arms glm-baseline,glm-causal --dry-run
-.venv/bin/python -m ncci_bench run --episode table-off --sessions 10 --arms glm-baseline,glm-causal
-.venv/bin/python -m ncci_bench run --episode table-off --sessions 10 --arms claude-haiku,claude-sonnet,claude-opus
+.venv/bin/python -m ncci_bench report runs/<run-id>
 ```
 
-`--sessions 6` is 30 claims, two cases of each edit type. `--sessions 10` is the full 50.
+## Additional Evaluation: Coding Rule Unavailable
 
-## Scope
+What happens when an agent can no longer access the coding rule it previously retrieved? We evaluated 50 claims across 10 coding scenarios. The Medicare edit was available on the first claim but unavailable on subsequent claims, testing whether agents could retain and reuse prior decisions.
 
-This evaluation covers one payment decision: the current PTP edit for a code pair on one date of service, and which modifier this payer will accept. The code pairs are real CMS changes. The claim text around them is written for the evaluation. The four published cases all share column-two code `0932T`. Medical necessity, appeal letters, and dollar amounts are outside this score.
+| Model | Follow-up accuracy | Total inference cost |
+| --- | ---: | ---: |
+| GLM 5.3 Flash + Causal Reflection | 95.0% | $0.029 |
+| Claude Sonnet 5.5 | 40.0% | $0.638 |
+| GLM 5.3 Flash | 37.5% | $0.026 |
+| Claude Opus 5.5 | 15.0% | $1.693 |
+| Claude Haiku 5.5 | 0.0% | $0.049 |
+
+Key findings:
+
+- 80 percentage points higher accuracy than Opus: 95% versus 15%.
+- 98% lower inference cost than Opus: $0.029 versus $1.693.
+- No retraining: Causal Reflection retains prior decisions even when the original coding rule is unavailable.
+
+Accuracy measures exact-match payment decisions on 40 follow-up claims. Missing decisions count as incorrect. Opus frequently exhausted its allowed turns attempting to retrieve the unavailable rule rather than submitting an answer.
+
+Run the evaluation:
+
+```bash
+.venv/bin/python -m ncci_bench run --episode table-off --sessions 10 --arms glm-baseline,glm-causal
+```
+
+See [RESULTS.md](RESULTS.md) for detailed methodology and results.
+
+## Who This Is For
+
+This benchmark is designed for teams building AI-native medical coding, billing, and revenue cycle management (RCM) systems. Potential applications include improving coding-agent reliability, reducing repeated payer rejections, and lowering inference costs in automated billing workflows.
+
+Building an AI medical billing agent? [Explore Causal Reflection](https://www.basedmodels.com/blog/introducing-causal-reflection) to see how your agents could learn from outcomes without retraining.
+
+## Scope and Limitations
+
+This is a controlled evaluation, not a production medical billing study. It uses real CMS coding edits but synthetic claim descriptions and deterministic simulated payer responses. All four primary scenarios share the same column-two code and accepted modifier.
+
+Results demonstrate outcome retention and reuse for a narrow coding decision, not general medical coding accuracy, real-world denial reduction, or production ROI. Medical necessity, appeals, reimbursement amounts, and broader payer-specific policies are outside the evaluation.

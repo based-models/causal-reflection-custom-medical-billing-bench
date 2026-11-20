@@ -41,11 +41,57 @@ On the opening claim, Opus sent XS first in all 4 cases. Causal reflection did s
 
 The four rows are ones where Medicare allows a modifier. All four share the second code `0932T`. The claim text is written for the evaluation. The saved answer is the final one, so a missed first try means that submission was not `pay` / `XS`. The text of the rejected modifier is not in the log.
 
+## Method
+
+The cases are the first four indicator-1 additions in the October 1, 2026 practitioner change file, in code order. Every claim uses the date of service October 15, 2026, so those rules are the ones in force.
+
+| Pair | What the row says | What this payer pays |
+| --- | --- | --- |
+| 00530 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00532 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00534 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+| 00537 / 0932T | Modifier allowed, effective October 1, 2026 | `pay` / `XS` |
+
+Each claim names the two codes, the date of service, and this sentence: "The column-two service was performed on a separate anatomic site." The claim text does not include the edit row, and it does not name XS as the modifier this payer pays. A denial of a bundled column-two code is usually reported as CO-97, "the benefit for this service is included in the payment for another service."
+
+The model has two tools on every claim:
+
+- `lookup_edit` returns the CMS row when the arguments name that case's code pair and date. The row stays available on claims 2 through 5.
+- `submit_answer` is the payer's decision. The answer is exactly two lines, `column_2: pay` or `column_2: deny`, then `modifier:` and one of `none`, `59`, `XE`, `XP`, `XS`, or `XU`. XS is accepted. The other modifiers are rejected, and the rejection says to resubmit with XS.
+
+Causal Reflection stores the accepted answer and can replay it on the next claim in the case. A rejected submission is visible inside that claim. It is not the fact replayed later. The baseline is the same model, with the same text and the same payer responses, and no memory between claims. Claude sees the same claims and has no memory between them either.
+
+A hold is a claim with no submission. An unaccepted claim ended on a submission the payer rejected. Those are counted separately from a wrong final payment. Omitting `--episode` runs this setup. `--sessions 1` is one case. `--sessions 4` is all 20 claims.
+
+| Arm | What it is |
+| --- | --- |
+| `glm-baseline` | GLM 5.3 Flash, no memory between claims |
+| `glm-causal` | GLM 5.3 Flash with Causal Reflection |
+| `claude-haiku` | Claude Haiku 5.5 |
+| `claude-sonnet` | Claude Sonnet 5.5 |
+| `claude-opus` | Claude Opus 5.5 |
+
+DeepSeek V4.1 Flash is available as `deepseek-baseline` and `deepseek-causal`. It was not part of this run. List price for the tokens each run used is in the tables above. No prices are estimated beyond the published token rates.
+
+### Dataset
+
+The source is the public CMS practitioner PTP quarterly change file, effective October 1, 2026, posted September 1, 2026:
+
+https://www.cms.gov/files/zip/medicare-ncci-2026q4-practitioner-quarterly-additions-deletions-revisions-ptp.zip
+
+The copy in this repo is `data/ncci/practitioner-q4.zip`. `data/ncci/PIN.json` records the download URL and the SHA-256. The bench reads the text tables in that ZIP:
+
+- 4,249 added edits (1,539 where a modifier is not allowed, 2,710 where a modifier may be allowed)
+- 14 deleted edits
+- 7 edits whose modifier indicator changed
+
+The file lists code pairs and a modifier indicator. It does not include code descriptions, fees, or medical notes. The ZIP contains the AMA copyright notice that CMS ships with the file. This repo stores the pairs and indicators, not descriptions.
+
 ## Earlier run: the lookup was turned off after claim 1
 
 This is a different setup, kept so that run can be reproduced. The comparison above is the one where the model can look the row up on every claim. Here the lookup returned the row on claim 1 and `{"available": false}` on claims 2 through 5. A model that declined to guess a payment scored the same as a model that paid a bundled line.
 
-Fifty claims, ten real edits. A claim counts only when both lines match: whether the second code is paid or denied, and the modifier (`none` or `XS`). A missing answer scores as a miss. GLM runs are `20261114T202044Z`. Claude runs are `20261114T203433Z`. No request failed. No lookup on claims 2 through 5 contained the edit row.
+Fifty claims, ten real edits. A claim counts only when both lines match: whether the second code is paid or denied, and the modifier (`none` or `XS`). A missing answer scores as a miss. GLM runs are `20261114T202044Z`. Claude runs are `20261114T203433Z`. No request failed. No lookup on claims 2 through 5 contained the edit row. `--sessions 6` is the first 30 claims, two cases of each edit type. `--sessions 10` is all 50.
 
 ### Score and cost
 

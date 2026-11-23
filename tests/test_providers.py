@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from ncci_bench.pricing import cost_usd
 from ncci_bench.providers import ARMS, anthropic_body, env_var_for, openai_body, plain_headers
 
 
@@ -81,3 +82,20 @@ def test_plain_glm_uses_the_model_api_without_a_session() -> None:
     assert headers["Authorization"] == "Bearer test-key"
     assert "X-Session-Id" not in headers
     assert "X-Workload" not in headers
+
+
+def test_inkling_baseline_calls_together_directly() -> None:
+    arm = ARMS["inkling-baseline"]
+    assert arm.model == "thinkingmachines/Inkling-2-Small"
+    assert arm.kind == "together"
+    assert env_var_for(arm) == "TOGETHER_API_KEY"
+    assert round(cost_usd("inkling-baseline", 1_000_000, 1_000_000) or 0, 6) == 1.3
+
+
+def test_inkling_uses_the_causal_api_at_the_together_list_price() -> None:
+    arm = ARMS["inkling-causal"]
+    assert arm.model == "inkling-2-small:causal-reflection"
+    assert arm.kind == "causal"
+    assert env_var_for(arm) == "BASED_API_KEY"
+    assert round(cost_usd("inkling-causal", 1_000_000, 1_000_000) or 0, 6) == 1.3
+    assert round(cost_usd("inkling-causal", 1_000_000, 0, 800_000) or 0, 6) == 0.084

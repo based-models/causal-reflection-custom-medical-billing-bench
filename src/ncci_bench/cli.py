@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> None:
         default="glm-baseline,glm-causal",
         help=(
             "Comma-separated: glm-baseline, glm-api, glm-causal, deepseek-baseline, "
-            "deepseek-causal, claude-haiku, claude-sonnet, claude-opus."
+            "deepseek-causal, inkling-baseline, inkling-causal, claude-haiku, claude-sonnet, claude-opus."
         ),
     )
     run.add_argument(

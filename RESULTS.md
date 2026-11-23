@@ -41,6 +41,38 @@ On the opening claim, Opus sent XS first in all 4 cases. Causal reflection did s
 
 The four rows are ones where Medicare allows a modifier. All four share the second code `0932T`. The claim text is written for the evaluation. The saved answer is the final one, so a missed first try means that submission was not `pay` / `XS`. The text of the rejected modifier is not in the log.
 
+### Inkling 2 Small
+
+The same 20 claims. Fireworks does not serve this model as a serverless endpoint. The baseline calls Together `thinkingmachines/Inkling-2-Small` directly (`20261123T010205Z`). Causal reflection calls `inkling-2-small:causal-reflection` on the model API, which routes to that same Together model (`20261123T005517Z`). The list price is $0.30 input, $0.03 cached input, and $1.00 output per million tokens. No request failed. Every lookup returned the row. Holds and unaccepted claims were zero. The two arms are in separate run files, so the printed summary does not pair them. The comparison below is the same 20 claims.
+
+| Model | First try, claims 2–5 | Final | Submits | Cost |
+| --- | ---: | ---: | ---: | ---: |
+| GLM 5.3 Flash + causal reflection | 100% (16/16) | 100% | 1.00 | $0.009 |
+| Inkling 2 Small + causal reflection | 100% (16/16) | 100% | 1.00 | $0.017 |
+| Claude Opus 5.5 | 100% (16/16) | 100% | 1.00 | $0.299 |
+| Inkling 2 Small | 93.8% (15/16) | 100% | 1.06 | $0.011 |
+| GLM 5.3 Flash | 56.2% (9/16) | 100% | 1.44 | $0.008 |
+| Claude Sonnet 5.5 | 25.0% (4/16) | 100% | 1.75 | $0.206 |
+| Claude Haiku 5.5 | 6.2% (1/16) | 100% | 1.94 | $0.013 |
+
+Causal reflection is +6.2 percentage points on the later claims, 16/16 against 15/16. The plain model already sent `pay` / `XS` first on 19 of the 20 claims. The one later miss was the fifth claim of `00532` / `0932T`. The payer rejected that submission, the second submission was accepted, and the other three later claims in that case were already right. **The causal run cost $0.017 against $0.011 for the same model with no memory.** The baseline used 36,950 prompt tokens (18,432 cached) and 5,071 completion tokens. The causal run used 43,666 prompt tokens (25,344 cached) and 10,750 completion tokens.
+
+On the opening claim the plain model sent XS first in all 4 cases. Causal reflection did so on `00530` / `0932T` and `00532` / `0932T`. On `00534` / `0932T` and `00537` / `0932T` the first submission was rejected and the second was accepted, and the next four claims in each case were XS on the first try.
+
+Later first-try by pair:
+
+| Pair | Inkling + causal reflection | Inkling |
+| --- | ---: | ---: |
+| 00530 / 0932T | 4/4 | 4/4 |
+| 00532 / 0932T | 4/4 | 3/4 |
+| 00534 / 0932T | 4/4 | 4/4 |
+| 00537 / 0932T | 4/4 | 4/4 |
+
+```bash
+.venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms inkling-baseline
+.venv/bin/python -m ncci_bench run --episode payer --sessions 4 --arms inkling-causal
+```
+
 ## Method
 
 The cases are the first four indicator-1 additions in the October 1, 2026 practitioner change file, in code order. Every claim uses the date of service October 15, 2026, so those rules are the ones in force.
@@ -67,6 +99,8 @@ A hold is a claim with no submission. An unaccepted claim ended on a submission 
 | --- | --- |
 | `glm-baseline` | GLM 5.3 Flash, no memory between claims |
 | `glm-causal` | GLM 5.3 Flash with Causal Reflection |
+| `inkling-baseline` | Inkling 2 Small on Together, no memory between claims |
+| `inkling-causal` | Inkling 2 Small with Causal Reflection, via Together |
 | `claude-haiku` | Claude Haiku 5.5 |
 | `claude-sonnet` | Claude Sonnet 5.5 |
 | `claude-opus` | Claude Opus 5.5 |
@@ -106,6 +140,22 @@ Fifty claims, ten real edits. A claim counts only when both lines match: whether
 Every model read the row on claim 1 and answered all 10 opening claims correctly. The gap on this setup is what happens after the row is no longer returned.
 
 On this setup, causal reflection is 55 points above Sonnet on claims 2 through 5, at about $0.03 against Sonnet's $0.64, and 80 points above Opus, at about $0.03 against Opus's $1.69. Haiku, Sonnet, and Opus together cost $2.38. Sonnet's 40% is the 16 deleted edits, where `pay` / `none` is the right answer. Opus is lower because it left most later claims blank.
+
+### Inkling 2 Small
+
+The same 50 claims, run `20261123T011526Z`. The baseline calls Together directly. Causal reflection calls `inkling-2-small:causal-reflection`. No request failed. No lookup on claims 2 through 5 contained the edit row. Both arms answered all 10 opening claims correctly.
+
+| Model | Claims 2–5 | Claim 1 | Cost |
+| --- | ---: | ---: | ---: |
+| GLM 5.3 Flash + causal reflection | 95.0% (38/40) | 100% (10/10) | $0.029 |
+| Inkling 2 Small + causal reflection | 100% (40/40) | 100% (10/10) | $0.053 |
+| Claude Sonnet 5.5 | 40.0% (16/40) | 100% (10/10) | $0.638 |
+| GLM 5.3 Flash | 37.5% (15/40) | 100% (10/10) | $0.026 |
+| Inkling 2 Small | 17.5% (7/40) | 100% (10/10) | $0.052 |
+| Claude Opus 5.5 | 15.0% (6/40) | 100% (10/10) | $1.693 |
+| Claude Haiku 5.5 | 0.0% (0/40) | 100% (10/10) | $0.049 |
+
+Causal reflection is +82.5 percentage points on the later claims, 40/40 against 7/40. **The two Inkling arms cost $0.053 and $0.052.** By edit type, the causal arm was 16/16 on deleted edits, 12/12 on hard bundles, and 12/12 on indicator changes. The baseline was 6/16, 1/12, and 0/12.
 
 ### By edit type
 

@@ -1,4 +1,4 @@
-"""Fireworks, the causal-reflection API, and Anthropic.
+"""Fireworks, Together, the causal-reflection API, and Anthropic.
 
 Decision calls send tool_choice auto so the model can call lookup_edit before
 submit_answer. The production API ignores tool_choice. Claude 5.5 rejects
@@ -19,6 +19,7 @@ from ncci_bench.pricing import cost_usd
 from ncci_bench.protocol import ToolCall
 
 FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+TOGETHER_URL = "https://api.together.ai/v1/chat/completions"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 RETRY_STATUS = {429, 500, 502, 503, 529}
@@ -62,6 +63,18 @@ ARMS: dict[str, Arm] = {
         "causal",
         "deepseek-v4.1-flash:causal-reflection",
         "DeepSeek V4.1 Flash + causal reflection",
+    ),
+    "inkling-baseline": Arm(
+        "inkling-baseline",
+        "together",
+        "thinkingmachines/Inkling-2-Small",
+        "Inkling 2 Small",
+    ),
+    "inkling-causal": Arm(
+        "inkling-causal",
+        "causal",
+        "inkling-2-small:causal-reflection",
+        "Inkling 2 Small + causal reflection",
     ),
     "claude-haiku": Arm(
         "claude-haiku",
@@ -147,6 +160,8 @@ def load_dotenv(path: str = ".env") -> None:
 def env_var_for(arm: Arm) -> str:
     if arm.kind == "fireworks":
         return "FIREWORKS_API_KEY"
+    if arm.kind == "together":
+        return "TOGETHER_API_KEY"
     if arm.kind in {"causal", "plain"}:
         return "BASED_API_KEY"
     return "ANTHROPIC_API_KEY"
@@ -466,6 +481,9 @@ class Client:
         elif arm.kind == "plain":
             url = causal_base_url() + "/chat/completions"
             headers = plain_headers(api_key)
+        elif arm.kind == "together":
+            url = TOGETHER_URL
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         else:
             url = FIREWORKS_URL
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

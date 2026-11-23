@@ -53,6 +53,12 @@ DEEPSEEK = Rates(
     cached_per_token=_per_million(0.006),
     output_per_token=_per_million(1.20),
 )
+# Together list price for thinkingmachines/Inkling-2-Small. The model API uses the same rates.
+INKLING = Rates(
+    input_per_token=_per_million(0.30),
+    cached_per_token=_per_million(0.03),
+    output_per_token=_per_million(1.00),
+)
 HAIKU = Rates(
     input_per_token=_per_million(0.10),
     cached_per_token=_per_million(0.01),
@@ -82,6 +88,8 @@ RATES: dict[str, Rates] = {
     "glm-api": GLM,
     "deepseek-baseline": DEEPSEEK,
     "deepseek-causal": DEEPSEEK,
+    "inkling-baseline": INKLING,
+    "inkling-causal": INKLING,
     "claude-haiku": HAIKU,
     "claude-sonnet": SONNET,
     "claude-opus": OPUS,
